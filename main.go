@@ -35,6 +35,7 @@ const (
 	useCacheArg            = "use-cache"
 	applyToGeneratedFiles  = "apply-to-generated-files"
 	excludesArg            = "excludes"
+	stdinFilePathArg       = "stdin-filepath"
 	// using a regex here so that this will work with forked repos (at least on github.com)
 	modulePathRegex  = `^github.com/[\w-]+/goimports-reviser(/v\d+)?@?`
 	separateNamedArg = "separate-named"
@@ -66,13 +67,20 @@ var (
 )
 
 var (
-	projectName, companyPkgPrefixes, output, importsOrder, excludes string
+	projectName, companyPkgPrefixes, output, importsOrder, excludes, stdinFilePath string
 
 	// Deprecated
 	localPkgPrefixes, filePath string
 )
 
 func init() {
+	flag.StringVar(
+		&stdinFilePath,
+		stdinFilePathArg,
+		"",
+		"Original file path for source read from stdin. Used to resolve the Go package and unsaved buffer imports.",
+	)
+
 	flag.StringVar(
 		&filePath,
 		filePathArg,
@@ -308,6 +316,17 @@ func main() {
 			fmt.Fprintln(os.Stderr, "reading from stdin, press Ctrl+D when done...")
 		}
 	}
+	if stdinFilePath != "" {
+		if len(originPaths) != 1 || originPaths[0] != reviser.StandardInput {
+			printUsageAndExit(fmt.Errorf("-%s can only be used when reading from stdin", stdinFilePathArg))
+		}
+
+		var err error
+		stdinFilePath, err = filepath.Abs(stdinFilePath)
+		if err != nil {
+			printUsageAndExit(fmt.Errorf("failed to get absolute stdin file path: %w", err))
+		}
+	}
 
 	var options reviser.SourceFileOptions
 	if shouldRemoveUnusedImports != nil && *shouldRemoveUnusedImports {
@@ -354,7 +373,11 @@ func main() {
 	log.Printf("Paths: %v\n", originPaths)
 	for _, originPath := range originPaths {
 		log.Printf("Processing %s\n", originPath)
-		originProjectName, err := helper.DetermineProjectName(projectName, originPath, helper.OSGetwdOption)
+		projectPath := originPath
+		if originPath == reviser.StandardInput && stdinFilePath != "" {
+			projectPath = stdinFilePath
+		}
+		originProjectName, err := helper.DetermineProjectName(projectName, projectPath, helper.OSGetwdOption)
 		if err != nil {
 			printUsageAndExit(fmt.Errorf("Could not determine project name for path %s: %s", originPath, err))
 		}
@@ -392,6 +415,10 @@ func main() {
 
 		var formattedOutput []byte
 		var pathHasChange bool
+		sourceFile := reviser.NewSourceFile(originProjectName, originPath)
+		if originPath == reviser.StandardInput && stdinFilePath != "" {
+			sourceFile = reviser.NewSourceFileFromStdin(originProjectName, stdinFilePath)
+		}
 		if *isUseCache {
 			hash := md5.Sum([]byte(originPath))
 
@@ -418,7 +445,7 @@ func main() {
 					continue
 				}
 			}
-			formattedOutput, _, pathHasChange, err = reviser.NewSourceFile(originProjectName, originPath).Fix(options...)
+			formattedOutput, _, pathHasChange, err = sourceFile.Fix(options...)
 			if err != nil {
 				log.Fatalf("Failed to fix file: %+v\n", err)
 			}
@@ -443,7 +470,7 @@ func main() {
 				log.Fatalf("Failed to write file hash: %+v\n", err)
 			}
 		} else {
-			formattedOutput, _, pathHasChange, err = reviser.NewSourceFile(originProjectName, originPath).Fix(options...)
+			formattedOutput, _, pathHasChange, err = sourceFile.Fix(options...)
 			if err != nil {
 				log.Fatalf("Failed to fix file: %+v\n", err)
 			}

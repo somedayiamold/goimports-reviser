@@ -56,8 +56,14 @@ goimports-reviser -rm-unused -set-alias -format ./reviser/reviser.go ./pkg/...
 When no file or directory is specified, `goimports-reviser` reads Go source from stdin and writes the formatted source to stdout. You can also pass `-` explicitly:
 
 ```bash
-goimports-reviser -rm-unused -set-alias -format < main.go
-goimports-reviser -rm-unused -set-alias -format - < main.go
+goimports-reviser -format < main.go
+goimports-reviser -format - < main.go
+```
+
+Options that analyze the Go package, such as `-rm-unused` and `-set-alias`, need the original file path. Pass it with `-stdin-filepath`; the source is still read from stdin, including unsaved changes:
+
+```bash
+goimports-reviser -rm-unused -set-alias -format -stdin-filepath /path/to/main.go < main.go
 ```
 
 ### Zed
@@ -72,7 +78,13 @@ goimports-reviser -rm-unused -set-alias -format - < main.go
       "formatter": {
         "external": {
           "command": "goimports-reviser",
-          "arguments": ["-format"]
+          "arguments": [
+            "-rm-unused",
+            "-set-alias",
+            "-format",
+            "-stdin-filepath",
+            "{buffer_path}"
+          ]
         }
       }
     }
@@ -80,7 +92,7 @@ goimports-reviser -rm-unused -set-alias -format - < main.go
 }
 ```
 
-Zed sends the current buffer to the formatter over stdin, so no file path or `{buffer_path}` argument is needed.
+Zed sends the current buffer to the formatter over stdin. `{buffer_path}` supplies its real path so package analysis uses the correct directory and the unsaved stdin content.
 
 ### Example, to configure it with JetBrains IDEs (via file watcher plugin):
 ![example](./images/image.png)
@@ -126,6 +138,8 @@ Usage of goimports-reviser:
     	Set alias for versioned package names, like 'github.com/go-pg/pg/v9'. In this case import will be set as 'pg "github.com/go-pg/pg/v9"'. Optional parameter.
   -set-exit-status
     	set the exit status to 1 if a change is needed/made. Optional parameter.
+  -stdin-filepath string
+        Original file path for source read from stdin. Used to resolve the Go package and unsaved buffer imports.
   -use-cache
     	Use cache to improve performance. Optional parameter.
   -version

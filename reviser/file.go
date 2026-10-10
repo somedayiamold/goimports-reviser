@@ -42,13 +42,27 @@ type SourceFile struct {
 
 	projectName string
 	filePath    string
+	// packageFilePath is the real source path used to load package metadata.
+	// It differs from filePath when source content is read from stdin.
+	packageFilePath string
 }
 
 // NewSourceFile constructor
 func NewSourceFile(projectName, filePath string) *SourceFile {
 	return &SourceFile{
-		projectName: projectName,
-		filePath:    filePath,
+		projectName:     projectName,
+		filePath:        filePath,
+		packageFilePath: filePath,
+	}
+}
+
+// NewSourceFileFromStdin constructs a source file that reads content from stdin
+// while using filePath to resolve its Go package and imports.
+func NewSourceFileFromStdin(projectName, filePath string) *SourceFile {
+	return &SourceFile{
+		projectName:     projectName,
+		filePath:        StandardInput,
+		packageFilePath: filePath,
 	}
 }
 
@@ -90,7 +104,7 @@ func (f *SourceFile) Fix(options ...SourceFileOption) ([]byte, []byte, bool, err
 		return originalContent, originalContent, false, nil
 	}
 
-	importsWithMetadata, err := f.parseImports(pf)
+	importsWithMetadata, err := f.parseImports(pf, originalContent)
 	if err != nil {
 		return nil, originalContent, false, err
 	}
@@ -496,7 +510,7 @@ func importWithComment(imprt string, commentsMetadata map[string]*commentsMetada
 	return fmt.Sprintf("%s %s", imprt, comment)
 }
 
-func (f *SourceFile) parseImports(file *ast.File) (map[string]*commentsMetadata, error) {
+func (f *SourceFile) parseImports(file *ast.File, originalContent []byte) (map[string]*commentsMetadata, error) {
 	importsWithMetadata := map[string]*commentsMetadata{}
 
 	shouldRemoveUnusedImports := f.shouldRemoveUnusedImports
@@ -506,13 +520,35 @@ func (f *SourceFile) parseImports(file *ast.File) (map[string]*commentsMetadata,
 
 	if shouldRemoveUnusedImports || shouldUseAliasForVersionSuffix {
 		var err error
+		packageFilePath := f.packageFilePath
+		if packageFilePath == "" {
+			packageFilePath = f.filePath
+		}
+
+		var overlay map[string][]byte
+		if f.filePath == StandardInput && packageFilePath != StandardInput {
+			packageFilePath, err = filepath.Abs(packageFilePath)
+			if err != nil {
+				return nil, err
+			}
+			overlay = map[string][]byte{packageFilePath: originalContent}
+		}
+
 		buildTag := astutil.ParseBuildTag(file)
-		packageImports, err = astutil.LoadPackageDependencies(filepath.Dir(f.filePath), buildTag)
+		packageImports, err = astutil.LoadPackageDependenciesWithOverlay(
+			filepath.Dir(packageFilePath),
+			buildTag,
+			overlay,
+		)
 		if err != nil && buildTag != "" {
 			// Retry without build tag — files with custom build constraints
 			// (like tools.go with //+build tools) may cause go list conflicts
 			// when the file imports the project itself.
-			packageImports, err = astutil.LoadPackageDependencies(filepath.Dir(f.filePath), "")
+			packageImports, err = astutil.LoadPackageDependenciesWithOverlay(
+				filepath.Dir(packageFilePath),
+				"",
+				overlay,
+			)
 		}
 		if err != nil {
 			return nil, err

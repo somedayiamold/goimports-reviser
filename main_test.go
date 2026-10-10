@@ -13,7 +13,9 @@ import (
 	"github.com/incu6us/goimports-reviser/v3/reviser"
 )
 
-func TestCLIFormatsStdinToStdout(t *testing.T) {
+func buildTestBinary(t *testing.T) string {
+	t.Helper()
+
 	binaryName := "goimports-reviser"
 	if runtime.GOOS == "windows" {
 		binaryName += ".exe"
@@ -23,6 +25,12 @@ func TestCLIFormatsStdinToStdout(t *testing.T) {
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("failed to build goimports-reviser: %v\n%s", err, output)
 	}
+
+	return binaryPath
+}
+
+func TestCLIFormatsStdinToStdout(t *testing.T) {
+	binaryPath := buildTestBinary(t)
 
 	const input = `package main
 import (
@@ -47,6 +55,80 @@ func main() {
 `
 
 	cmd := exec.Command(binaryPath, "-format")
+	cmd.Stdin = strings.NewReader(input)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("goimports-reviser failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got := stdout.String(); got != want {
+		t.Fatalf("unexpected stdout:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestCLIFormatsStdinWithFilePath(t *testing.T) {
+	binaryPath := buildTestBinary(t)
+	projectDir := t.TempDir()
+	packageDir := filepath.Join(projectDir, "sample")
+	libraryDir := filepath.Join(projectDir, "lib", "v2")
+	if err := os.MkdirAll(packageDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libraryDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "go.mod"),
+		[]byte("module example.com/project\n\ngo 1.25\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(libraryDir, "lib.go"),
+		[]byte("package lib\n\nconst Value = 1\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	bufferPath := filepath.Join(packageDir, "source.go")
+	if err := os.WriteFile(bufferPath, []byte("package sample\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const input = `package sample
+import (
+"example.com/project/lib/v2"
+"fmt"
+)
+func f() {
+fmt.Println(lib.Value)
+}
+`
+	const want = `package sample
+
+import (
+	"fmt"
+
+	lib "example.com/project/lib/v2"
+)
+
+func f() {
+	fmt.Println(lib.Value)
+}
+`
+
+	cmd := exec.Command(
+		binaryPath,
+		"-format",
+		"-rm-unused",
+		"-set-alias",
+		"-stdin-filepath",
+		bufferPath,
+	)
+	cmd.Dir = projectDir
 	cmd.Stdin = strings.NewReader(input)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

@@ -67,10 +67,20 @@ func UsesImport(f *ast.File, packageImports PackageImports, importPath string) b
 //
 //	key - package(ex.: github/pkg/errors), value - name(ex.: errors)
 func LoadPackageDependencies(dir, buildTag string) (PackageImports, error) {
+	return LoadPackageDependenciesWithOverlay(dir, buildTag, nil)
+}
+
+// LoadPackageDependenciesWithOverlay returns package imports while replacing
+// files in the package with unsaved source content from overlay.
+func LoadPackageDependenciesWithOverlay(
+	dir, buildTag string,
+	overlay map[string][]byte,
+) (PackageImports, error) {
 	cfg := &packages.Config{
-		Dir:   dir,
-		Tests: true,
-		Mode:  packages.NeedName | packages.NeedImports,
+		Dir:     dir,
+		Tests:   true,
+		Mode:    packages.NeedName | packages.NeedImports,
+		Overlay: overlay,
 	}
 
 	if buildTag != "" {
