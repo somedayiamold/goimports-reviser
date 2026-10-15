@@ -22,6 +22,12 @@ func WithUsingAliasForVersionSuffix(f *SourceFile) error {
 	return nil
 }
 
+// WithRemovingRedundantAliases is an option to remove import aliases which are the same as the package name
+func WithRemovingRedundantAliases(f *SourceFile) error {
+	f.shouldRemoveRedundantAliases = true
+	return nil
+}
+
 // WithCodeFormatting use to format the code
 func WithCodeFormatting(f *SourceFile) error {
 	f.shouldFormatCode = true

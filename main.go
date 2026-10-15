@@ -24,6 +24,7 @@ const (
 	versionArg             = "version"
 	versionOnlyArg         = "version-only"
 	removeUnusedImportsArg = "rm-unused"
+	rmRedundantAliasArg    = "rm-redundant-alias"
 	setAliasArg            = "set-alias"
 	companyPkgPrefixesArg  = "company-prefixes"
 	outputArg              = "output"
@@ -55,6 +56,7 @@ var (
 	shouldShowVersion           *bool
 	shouldShowVersionOnly       *bool
 	shouldRemoveUnusedImports   *bool
+	shouldRemoveRedundantAlias  *bool
 	shouldSetAlias              *bool
 	shouldFormat                *bool
 	shouldApplyToGeneratedFiles *bool
@@ -153,6 +155,13 @@ Optional parameter.`,
 		removeUnusedImportsArg,
 		false,
 		"Remove unused imports. Optional parameter.",
+	)
+
+	shouldRemoveRedundantAlias = flag.Bool(
+		rmRedundantAliasArg,
+		false,
+		"Remove import aliases which are the same as the package name and the last element of the import path, "+
+			"like 'model \"github.com/org/project/model\"'. In this case import will be set as '\"github.com/org/project/model\"'. Optional parameter.",
 	)
 
 	shouldSetAlias = flag.Bool(
@@ -335,6 +344,10 @@ func main() {
 
 	if shouldSetAlias != nil && *shouldSetAlias {
 		options = append(options, reviser.WithUsingAliasForVersionSuffix)
+	}
+
+	if shouldRemoveRedundantAlias != nil && *shouldRemoveRedundantAlias {
+		options = append(options, reviser.WithRemovingRedundantAliases)
 	}
 
 	if shouldFormat != nil && *shouldFormat {

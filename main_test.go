@@ -141,6 +141,71 @@ func f() {
 	}
 }
 
+func TestCLIRemovesRedundantAliasFromStdin(t *testing.T) {
+	binaryPath := buildTestBinary(t)
+	projectDir := t.TempDir()
+	modelDir := filepath.Join(projectDir, "model")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(projectDir, "go.mod"),
+		[]byte("module example.com/project\n\ngo 1.25\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(modelDir, "model.go"),
+		[]byte("package model\n\nconst Value = 1\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	bufferPath := filepath.Join(projectDir, "source.go")
+	if err := os.WriteFile(bufferPath, []byte("package project\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const input = `package project
+
+import (
+	model "example.com/project/model"
+	"fmt"
+)
+
+func f() {
+	fmt.Println(model.Value)
+}
+`
+	const want = `package project
+
+import (
+	"fmt"
+
+	"example.com/project/model"
+)
+
+func f() {
+	fmt.Println(model.Value)
+}
+`
+
+	cmd := exec.Command(binaryPath, "-rm-redundant-alias", "-stdin-filepath", bufferPath)
+	cmd.Dir = projectDir
+	cmd.Stdin = strings.NewReader(input)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("goimports-reviser failed: %v\nstderr:\n%s", err, stderr.String())
+	}
+	if got := stdout.String(); got != want {
+		t.Fatalf("unexpected stdout:\n%s\nwant:\n%s", got, want)
+	}
+}
+
 func TestNormalizeOriginPaths(t *testing.T) {
 	tests := []struct {
 		name  string

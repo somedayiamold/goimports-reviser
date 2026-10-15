@@ -28,6 +28,7 @@
 Tool for Golang to sort goimports by 3-4 groups(with own [linter](linter/README.md)): std, general, company(which is optional) and project dependencies.
 Also, formatting for your code will be prepared(so, you don't need to use `gofmt` or `goimports` separately). 
 Use additional options `-rm-unused` to remove unused imports and `-set-alias` to rewrite import aliases for versioned packages or for packages with additional prefix/suffix(example: `opentracing "github.com/opentracing/opentracing-go"`).
+`-rm-redundant-alias` - will remove import aliases which are the same as the package name(example: `model "github.com/org/project/model"`).
 `-company-prefixes` - will create group for company imports(libs inside your organization). Values should be comma-separated.
 
 
@@ -60,7 +61,7 @@ goimports-reviser -format < main.go
 goimports-reviser -format - < main.go
 ```
 
-Options that analyze the Go package, such as `-rm-unused` and `-set-alias`, need the original file path. Pass it with `-stdin-filepath`; the source is still read from stdin, including unsaved changes:
+Options that analyze the Go package, such as `-rm-unused`, `-set-alias` and `-rm-redundant-alias`, need the original file path. Pass it with `-stdin-filepath`; the source is still read from stdin, including unsaved changes:
 
 ```bash
 goimports-reviser -rm-unused -set-alias -format -stdin-filepath /path/to/main.go < main.go
@@ -130,6 +131,8 @@ Usage of goimports-reviser:
     	Your project name(ex.: github.com/incu6us/goimports-reviser). Optional parameter.
   -recursive
     	Apply rules recursively if target is a directory. In case of ./... execution will be recursively applied by default. Optional parameter.
+  -rm-redundant-alias
+    	Remove import aliases which are the same as the package name and the last element of the import path, like 'model "github.com/org/project/model"'. In this case import will be set as '"github.com/org/project/model"'. Optional parameter.
   -rm-unused
     	Remove unused imports. Optional parameter.
   -separate-named
@@ -289,6 +292,34 @@ func test(){
 func additionalTest(){
 }
 ```
+
+### Example with `-rm-redundant-alias`-option
+
+Before usage:
+
+```go
+package testdata // goimports-reviser/testdata
+
+import (
+	fmt "fmt"
+	model "github.com/org/project/model"
+	pg "github.com/go-pg/pg/v9"
+)
+```
+
+After usage:
+```go
+package testdata // goimports-reviser/testdata
+
+import (
+	"fmt"
+
+	pg "github.com/go-pg/pg/v9"
+	"github.com/org/project/model"
+)
+```
+
+The alias is removed only when it is the same as the package name and the last element of the import path, so aliases for versioned packages(like `pg "github.com/go-pg/pg/v9"`) and renamed packages are kept.
 
 ### Example with `-separate-named`-option
 

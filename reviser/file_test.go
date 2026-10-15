@@ -1560,6 +1560,110 @@ func main() {
 	}
 }
 
+func TestSourceFile_Fix_WithRemovingRedundantAliases(t *testing.T) {
+	// Package names of the project may match or differ from the last element of their import paths.
+	projectDir := t.TempDir()
+	for name, content := range map[string]string{
+		"go.mod":         "module example.com/project\n\ngo 1.25\n",
+		"model/model.go": "package model\n\nconst Name = \"model\"\n",
+		"util/util.go":   "package helpers\n\nconst Name = \"helpers\"\n",
+		"lib/v2/lib.go":  "package lib\n\nconst Name = \"lib\"\n",
+	} {
+		filePath := filepath.Join(projectDir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(filePath), 0o755))
+		require.NoError(t, os.WriteFile(filePath, []byte(content), 0o644))
+	}
+	filePath := filepath.Join(projectDir, "example.go")
+
+	tests := []struct {
+		name        string
+		fileContent string
+		want        string
+		wantChange  bool
+	}{
+		{
+			name: "remove redundant aliases",
+			fileContent: `package project
+
+import (
+	fmt "fmt"
+	template "text/template"
+
+	model "example.com/project/model" // model package
+)
+
+func main() {
+	fmt.Println(template.HTMLEscapeString(model.Name))
+}
+`,
+			want: `package project
+
+import (
+	"fmt"
+	"text/template"
+
+	"example.com/project/model" // model package
+)
+
+func main() {
+	fmt.Println(template.HTMLEscapeString(model.Name))
+}
+`,
+			wantChange: true,
+		},
+		{
+			name: "keep aliases which are not redundant",
+			fileContent: `package project
+
+import (
+	_ "embed"
+	. "fmt"
+	rand "math/rand/v2"
+	str "strings"
+
+	lib "example.com/project/lib/v2"
+	m "example.com/project/model"
+	util "example.com/project/util"
+)
+
+func main() {
+	Println(str.ToUpper(lib.Name+m.Name+util.Name), rand.Int())
+}
+`,
+			want: `package project
+
+import (
+	_ "embed"
+	. "fmt"
+	rand "math/rand/v2"
+	str "strings"
+
+	lib "example.com/project/lib/v2"
+	m "example.com/project/model"
+	util "example.com/project/util"
+)
+
+func main() {
+	Println(str.ToUpper(lib.Name+m.Name+util.Name), rand.Int())
+}
+`,
+			wantChange: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, os.WriteFile(filePath, []byte(tt.fileContent), 0o644))
+
+			got, _, hasChange, err := NewSourceFile("example.com/project", filePath).
+				Fix(WithRemovingRedundantAliases)
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantChange, hasChange)
+			assert.Equal(t, tt.want, string(got))
+		})
+	}
+}
+
 func TestSourceFile_Fix_WithLocalPackagePrefixes(t *testing.T) {
 	type args struct {
 		projectName      string
